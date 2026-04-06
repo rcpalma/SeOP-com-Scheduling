@@ -3,7 +3,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from solver import solve_SaOP
-from data import dados
+from solver1 import solve_scheduling
+from data import generate_data
 from gurobipy import GRB
 
 app = FastAPI(title="SaOP Optimization API")
@@ -25,108 +26,98 @@ class OptimizationRequest(BaseModel):
 @app.post("/solve")
 async def solve_model(req: OptimizationRequest):
     try:
-        # Generate instance data
-        # Note: In real scenarios, these could be passed from the frontend.
-        # Here we use the function provided.
-        P,L,J,T,dem,CapL,CapE,CapF,a,v,LTp,LTj,st,s,h,hf,c,ct,Io,Ij,M = dados(req.p, req.l, req.j, req.t)
+        # Generate instance data using generate_data (more complete)
+        data_res = generate_data(req.p, req.l, req.j, req.t)
         
-        # Run optimization
-        model, x_vars, y_vars, f_vars, e_cd_vars, e_f_vars = solve_SaOP(
-            P,L,J,T,dem,CapL,CapE,CapF,a,v,LTp,LTj,st,s,h,hf,c,ct,Io,Ij,M
+        # P, L, J, T, dem, CapL, CapE, CapF, a, v, LTp, LTj, st, s, h, hf, c, ct, Io, Ij, M, st2, ch, cf, cma, wl, b
+        P, L, J, T = data_res[0:4]
+        dem, CapL, CapE, CapF, a, v, LTp, LTj, st, s, h, hf, c, ct, Io, Ij, M = data_res[4:21]
+        st2 = data_res[21]
+        ch, cf, cma, wl, b = data_res[22:27]
+        
+        # 1. Run main optimization (S&OP)
+        model, x_vars, y_vars, f_vars, e_cd_vars, e_f_vars, w_vars, F_vars, H_vars = solve_SaOP(
+            P, L, J, T, dem, CapL, CapE, CapF, a, v, LTp, LTj, st, s, h, hf, c, ct, Io, Ij, 
+            ch, cf, cma, wl, b, M
         )
         
         if model.status == GRB.OPTIMAL:
-            # Extract values from Gurobi tuples into dicts/lists for JSON serialization
-            # x[p, l, t]
-            x_res = []
-            for p in range(P):
-                for l in range(L):
-                    for t in range(T):
-                        val = x_vars[p, l, t].X
-                        if val > 1e-5: # Keep it compact
-                            x_res.append({"p": p, "l": l, "t": t, "val": val})
-
-            # f[p, j, t]
-            f_res = []
-            for p in range(P):
-                for j in range(J):
-                    for t in range(T):
-                        val = f_vars[p, j, t].X
-                        if val > 1e-5:
-                            f_res.append({"p": p, "j": j, "t": t, "val": val})
-            
-            # e_cd[p, j, t] - Accumulate per CD for charts
-            e_cd_res = []
-            for p in range(P):
-                for j in range(J):
-                    for t in range(T):
-                        val = e_cd_vars[p, j, t].X
-                        # We might need 0 values for plotting over time
-                        e_cd_res.append({"p": p, "j": j, "t": t, "val": val})
-                        
-            # e_f[p, t]
-            e_f_res = []
-            for p in range(P):
+            # 2. Sequencing (Scheduling) Calculation
+            # We determine the sequence only for periods with active production on a line
+            sequencing_res = []
+            for l in range(L):
                 for t in range(T):
-                    val = e_f_vars[p, t].X
-                    e_f_res.append({"p": p, "t": t, "val": val})
+                    # Find all products produced in this line and time
+                    # Using a small epsilon (0.01) to capture any production
+                    P_active = [p for p in range(P) if x_vars[p, l, t].X > 0.01]
                     
-            # For charts we also need aggregate series directly to simplify frontend logic
-            # 1. Total Production at factory per product over time (Sum over L)
+                    if len(P_active) == 0:
+                        continue
+                    elif len(P_active) == 1:
+                        sequencing_res.append({"l": l, "t": t, "sequence": [P_active[0]]})
+                    else:
+                        # Multiple products: Solve TSP for optimal sequence based on st2
+                        # Extract the setup cost sub-matrix for the active products in line 'l'
+                        st_sub = {}
+                        for p1 in P_active:
+                            for p2 in P_active:
+                                if p1 != p2:
+                                    st_sub[p1, p2] = st2[p1, p2, l]
+                        
+                        seq = solve_scheduling(P_active, st_sub)
+                        if seq:
+                            sequencing_res.append({"l": l, "t": t, "sequence": seq})
+                        else:
+                            # Fallback if TSP fails
+                            sequencing_res.append({"l": l, "t": t, "sequence": P_active})
+
+            # 3. Extract standard values for frontend
             prod_out = []
             for p in range(P):
                 for t in range(T):
                     val = sum(x_vars[p, l, t].X for l in range(L))
-                    prod_out.append({"p": p, "t": t, "val": val})
+                    prod_out.append({"p": p, "t": t, "val": round(val, 2)})
+
+            e_f_res = []
+            for p in range(P):
+                for t in range(T):
+                    val = e_f_vars[p, t].X
+                    e_f_res.append({"p": p, "t": t, "val": round(val, 2)})
             
-            # 2. Accumulated CD inventory over time (Sum over J)
             est_cd_agg = []
             for p in range(P):
                 for t in range(T):
                     val = sum(e_cd_vars[p, j, t].X for j in range(J))
-                    est_cd_agg.append({"p": p, "t": t, "val": val})
+                    est_cd_agg.append({"p": p, "t": t, "val": round(val, 2)})
                     
-            # 3. Flux from factory to CD over time
-            # Using f_res (already contains it, but might skip 0s, let's make a complete series for plotting)
-            flux_cd = []
+            flux_cd_t = []
             for p in range(P):
                 for j in range(J):
                     for t in range(T):
                         val = f_vars[p, j, t].X
-                        flux_cd.append({"p": p, "j": j, "t": t, "val": val})
+                        flux_cd_t.append({"p": p, "j": j, "t": t, "val": round(val, 2)})
 
             return {
                 "status": "OPTIMAL",
                 "objective": model.objVal,
-                "metadata": {
-                    "P": P, "L": L, "J": J, "T": T
-                },
-                "results": {
-                    "production": x_res,
-                    "flux": f_res,
-                    "est_cd": e_cd_res,
-                    "est_f": e_f_res
-                },
+                "metadata": { "P": P, "L": L, "J": J, "T": T },
                 "plots": {
                     "prod_t": prod_out,
-                    "est_f_t": e_f_res, # Same as raw result since it's just (p, t)
+                    "est_f_t": e_f_res,
                     "est_cd_agg_t": est_cd_agg,
-                    "flux_cd_t": flux_cd
+                    "flux_cd_t": flux_cd_t,
+                    "sequencing": sequencing_res
                 }
             }
             
         elif model.status == GRB.INFEASIBLE:
-            return {
-                "status": "INFEASIBLE",
-                "message": "Optimization resulted in INFEASIBLE. Capacity may be insufficient."
-            }
+            return { "status": "INFEASIBLE", "message": "Optimization resulted in INFEASIBLE." }
         else:
-            return {
-                "status": "OTHER",
-                "message": f"Optimizer stopped with status: {model.status}"
-            }
+            return { "status": "OTHER", "message": f"Optimizer status: {model.status}" }
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

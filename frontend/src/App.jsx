@@ -34,7 +34,7 @@ function App() {
     setResults(null);
     try {
       const response = await axios.post(`${API_URL}/solve`, params);
-      
+
       if (response.data.status === 'OPTIMAL') {
         // Transform data for charts
         // prod_t is array of {p, t, val}
@@ -42,14 +42,15 @@ function App() {
         const T = response.data.metadata.T;
         const P = response.data.metadata.P;
         const J = response.data.metadata.J;
+        const L = response.data.metadata.L;
 
         const formatForTime = (rawData) => {
           let formatted = [];
           for (let time = 0; time < T; time++) {
             let row = { name: `T${time}` };
             for (let prod = 0; prod < P; prod++) {
-               const item = rawData.find(d => d.t === time && d.p === prod);
-               row[`Produto ${prod}`] = item ? item.val : 0;
+              const item = rawData.find(d => d.t === time && d.p === prod);
+              row[`Produto ${prod}`] = item ? item.val : 0;
             }
             formatted.push(row);
           }
@@ -61,8 +62,8 @@ function App() {
           for (let time = 0; time < T; time++) {
             let row = { name: `T${time}` };
             for (let prod = 0; prod < P; prod++) {
-               const item = rawData.find(d => d.t === time && d.p === prod && d.j === cdIndex);
-               row[`Produto ${prod}`] = item ? item.val : 0;
+              const item = rawData.find(d => d.t === time && d.p === prod && d.j === cdIndex);
+              row[`Produto ${prod}`] = item ? item.val : 0;
             }
             formatted.push(row);
           }
@@ -71,12 +72,13 @@ function App() {
 
         setResults({
           objective: response.data.objective,
-          metadata: { T, P, J },
+          metadata: { T, P, J, L },
           plots: {
             prod_t: formatForTime(response.data.plots.prod_t),
             est_f_t: formatForTime(response.data.plots.est_f_t),
             est_cd_agg_t: formatForTime(response.data.plots.est_cd_agg_t),
-            fluxo_cd: Array.from({length: J}).map((_, j) => formatForCDs(response.data.plots.flux_cd_t, j))
+            fluxo_cd: Array.from({ length: J }).map((_, j) => formatForCDs(response.data.plots.flux_cd_t, j)),
+            sequencing: response.data.plots.sequencing
           }
         });
       } else {
@@ -89,36 +91,134 @@ function App() {
     }
   };
 
-  const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#dd7878"];
+  const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#dd7878", "#a371f7", "#ec6547", "#f2cc60", "#79c0ff", "#34d058"];
 
   return (
     <div className="app-container">
+      <style>{`
+        .sequencing-grid {
+          display: grid;
+          gap: 1px;
+          background: rgba(255,255,255,0.05);
+          padding: 1px;
+          border-radius: 8px;
+          overflow-x: auto;
+          margin-top: 1rem;
+        }
+        .seq-row {
+          display: flex;
+          height: 70px;
+          gap: 6px;
+          background: var(--surface-card);
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .seq-label {
+          min-width: 120px;
+          display: flex;
+          align-items: center;
+          padding-left: 15px;
+          font-weight: 800;
+          font-size: 1rem;
+          color: var(--text-primary);
+          background: rgba(255,255,255,0.03);
+          border-right: 3px solid var(--accent-primary);
+        }
+        .seq-cell {
+          flex: 1;
+          min-width: 80px;
+          display: flex;
+          gap: 4px;
+          padding: 8px;
+          border-right: 1px solid rgba(255,255,255,0.05);
+          background: rgba(255,255,255,0.01);
+        }
+        .seq-block {
+          flex: 1;
+          height: 100%;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.1rem;
+          font-weight: 900;
+          color: white;
+          text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+          box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.1);
+          transition: all 0.2s ease-out;
+          border: 1px solid rgba(255,255,255,0.15);
+        }
+        .seq-block:hover {
+          transform: translateY(-3px) scale(1.03);
+          box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+          z-index: 15;
+          filter: brightness(1.25);
+        }
+        .time-header {
+          display: flex;
+          height: 40px;
+          background: rgba(255,255,255,0.1);
+          border-bottom: 2px solid rgba(255,255,255,0.2);
+        }
+        .time-tick {
+          flex: 1;
+          min-width: 80px;
+          text-align: center;
+          font-size: 0.9rem;
+          font-weight: 800;
+          color: var(--text-primary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .seq-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 15px;
+          margin-bottom: 1rem;
+          padding: 10px;
+          background: rgba(255,255,255,0.02);
+          border-radius: 6px;
+        }
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.85rem;
+          font-weight: bold;
+          color: var(--text-secondary);
+        }
+        .legend-color {
+          width: 14px;
+          height: 14px;
+          border-radius: 3px;
+        }
+      `}</style>
       <header className="header">
-        <h1>SaOP Optimizer</h1>
-        <p>Advanced Capacitated Lot Sizing Problem Resolution & Analytics</p>
+        <h1>S&OP + Scheduling</h1>
+        <p>Interface gráfica para resolução do problema de S&OP com sequenciamento de produção</p>
       </header>
 
       <div className="glass-card" style={{ marginBottom: '2rem' }}>
         <h2 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.2rem' }}>
           <Activity size={24} color="var(--accent-primary)" />
-          Problem Parameters
+          Parâmetros do Problema
         </h2>
-        
+
         <div className="control-panel">
           <div className="input-group">
-            <label>Products (P)</label>
+            <label>Produtos (P)</label>
             <input type="number" name="p" value={params.p} onChange={handleInputChange} min="1" max="10" />
           </div>
           <div className="input-group">
-            <label>Production Lines (L)</label>
+            <label>Linhas de Produção (L)</label>
             <input type="number" name="l" value={params.l} onChange={handleInputChange} min="1" max="10" />
           </div>
           <div className="input-group">
-            <label>Distribution Centers (J)</label>
+            <label>Centros de Distribuição (J)</label>
             <input type="number" name="j" value={params.j} onChange={handleInputChange} min="1" max="20" />
           </div>
           <div className="input-group">
-            <label>Time Periods (T)</label>
+            <label>Períodos (T)</label>
             <input type="number" name="t" value={params.t} onChange={handleInputChange} min="1" max="100" />
           </div>
         </div>
@@ -144,10 +244,10 @@ function App() {
       {results && !loading && (
         <div className="results-section">
           <div className="results-header">
-            <div className="metric-badge">
-              <span>Optimal Minimum Cost</span>
+            {/* <div className="metric-badge">
+              <span>Custo Mínimo Ótimo</span>
               <strong>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(results.objective)}</strong>
-            </div>
+            </div> */}
           </div>
 
           <div className="charts-grid">
@@ -155,18 +255,18 @@ function App() {
             <div className="glass-card chart-card">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Factory size={20} />
-                Total Production at Factory
+                Produção Total na Fábrica
               </h3>
               <div className="chart-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={results.plots.prod_t} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                    <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                    <YAxis stroke="var(--text-secondary)" tick={{fontSize: 12}} />
+                    <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
                     <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
                     <Legend />
-                    {Array.from({length: results.metadata.P}).map((_, i) => (
-                      <Line key={i} type="monotone" dataKey={`Produto ${i}`} stroke={colors[i % colors.length]} strokeWidth={3} dot={{r: 4, strokeWidth: 0}} activeDot={{r: 6}} />
+                    {Array.from({ length: results.metadata.P }).map((_, i) => (
+                      <Line key={i} type="monotone" dataKey={`Produto ${i}`} stroke={colors[i % colors.length]} strokeWidth={3} dot={{ r: 4, strokeWidth: 0 }} activeDot={{ r: 6 }} />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
@@ -177,72 +277,113 @@ function App() {
             <div className="glass-card chart-card">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Database size={20} />
-                Factory Inventory
+                Estoque na Fábrica
               </h3>
               <div className="chart-container">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={results.plots.est_f_t} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                    <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                    <YAxis stroke="var(--text-secondary)" tick={{fontSize: 12}} />
+                    <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                    <YAxis stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
                     <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
                     <Legend />
-                    {Array.from({length: results.metadata.P}).map((_, i) => (
+                    {Array.from({ length: results.metadata.P }).map((_, i) => (
                       <Area key={i} type="monotone" dataKey={`Produto ${i}`} fill={colors[i % colors.length]} stroke={colors[i % colors.length]} fillOpacity={0.3} strokeWidth={2} />
                     ))}
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
-
-            {/* 3. Estoque CD Agregado */}
-            <div className="glass-card chart-card">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Activity size={20} />
-                Aggregated Distribution Center Inventory
-              </h3>
-              <div className="chart-container">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={results.plots.est_cd_agg_t} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                    <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                    <YAxis stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                    <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                    <Legend />
-                    {Array.from({length: results.metadata.P}).map((_, i) => (
-                      <Bar key={i} dataKey={`Produto ${i}`} fill={colors[i % colors.length]} radius={[4, 4, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
           </div>
 
-          <h2 style={{ marginTop: '3rem', marginBottom: '2rem', textAlign: 'center' }}>Flux from Factory to Distribution Centers</h2>
+          {/* 3. Estoque CD Agregado - NOW FULL WIDTH */}
+          <div className="glass-card chart-card" style={{ marginTop: '2rem' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Activity size={20} />
+              Estoque Agregado nos Centros de Distribuição
+            </h3>
+            <div className="chart-container" style={{ height: '400px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={results.plots.est_cd_agg_t} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                  <YAxis stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                  <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                  <Legend />
+                  {Array.from({ length: results.metadata.P }).map((_, i) => (
+                    <Bar key={i} dataKey={`Produto ${i}`} fill={colors[i % colors.length]} radius={[4, 4, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="glass-card" style={{ marginTop: '2rem' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: 'var(--accent-primary)' }}>
+              <Play size={20} color="var(--accent-primary)" />
+              Sequenciamento de Produção
+            </h3>
+            <div className="seq-legend">
+              {Array.from({ length: results.metadata.P }).map((_, i) => (
+                <div key={i} className="legend-item">
+                  <div className="legend-color" style={{ backgroundColor: colors[i % colors.length] }}></div>
+                  <span>Produto {i}</span>
+                </div>
+              ))}
+            </div>
+            <div className="sequencing-grid">
+              <div className="time-header">
+                <div className="seq-label" style={{ background: 'rgba(255,255,255,0.05)' }}>Períodos</div>
+                {Array.from({ length: results.metadata.T }).map((_, t) => (
+                  <div key={t} className="time-tick">{t}</div>
+                ))}
+              </div>
+              {Array.from({ length: results.metadata.L }).map((_, l) => (
+                <div key={l} className="seq-row">
+                  <div className="seq-label">Linha {l}</div>
+                  {Array.from({ length: results.metadata.T }).map((_, t) => {
+                    const seqData = results.plots.sequencing?.find(s => s.l === l && s.t === t);
+                    return (
+                      <div key={t} className="seq-cell">
+                        {seqData ? seqData.sequence.map((p, idx) => (
+                          <div key={idx} className="seq-block" style={{ backgroundColor: colors[p % colors.length] }} title={`Produto ${p}`}>
+                            {p}
+                          </div>
+                        )) : (
+                          <div style={{ width: '100%', height: '100%', background: 'rgba(255,255,255,0.02)' }}></div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <h2 style={{ marginTop: '3rem', marginBottom: '2rem', textAlign: 'center' }}>Fluxo da Fábrica para os Centros de Distribuição</h2>
           <div className="charts-grid">
-             {results.plots.fluxo_cd.map((dataForCD, cdIndex) => (
-               <div key={cdIndex} className="glass-card chart-card">
-                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                   <Truck size={20} />
-                   Flux to CD {cdIndex}
-                 </h3>
-                 <div className="chart-container">
-                   <ResponsiveContainer width="100%" height="100%">
-                     <LineChart data={dataForCD} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                       <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                       <YAxis stroke="var(--text-secondary)" tick={{fontSize: 12}} />
-                       <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
-                       <Legend />
-                       {Array.from({length: results.metadata.P}).map((_, i) => (
-                         <Line key={i} type="monotone" dataKey={`Produto ${i}`} stroke={colors[i % colors.length]} strokeWidth={2} dot={{r: 3, strokeWidth: 0}} />
-                       ))}
-                     </LineChart>
-                   </ResponsiveContainer>
-                 </div>
-               </div>
-             ))}
+            {results.plots.fluxo_cd.map((dataForCD, cdIndex) => (
+              <div key={cdIndex} className="glass-card chart-card">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Truck size={20} />
+                  Fluxo para o CD {cdIndex}
+                </h3>
+                <div className="chart-container">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={dataForCD} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                      <YAxis stroke="var(--text-secondary)" tick={{ fontSize: 12 }} />
+                      <Tooltip contentStyle={{ backgroundColor: 'rgba(13,17,23,0.9)', borderColor: 'var(--surface-border)', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
+                      <Legend />
+                      {Array.from({ length: results.metadata.P }).map((_, i) => (
+                        <Line key={i} type="monotone" dataKey={`Produto ${i}`} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 3, strokeWidth: 0 }} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
