@@ -244,10 +244,6 @@ function App() {
       {results && !loading && (
         <div className="results-section">
           <div className="results-header">
-            {/* <div className="metric-badge">
-              <span>Custo Mínimo Ótimo</span>
-              <strong>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(results.objective)}</strong>
-            </div> */}
           </div>
 
           <div className="charts-grid">
