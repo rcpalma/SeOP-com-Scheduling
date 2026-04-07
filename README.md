@@ -66,7 +66,8 @@ pip install -r requirements.txt
 A API foi desenvolvida com **FastAPI** e **Uvicorn** (Python), com ajuda de **IA**.
 A interface web foi construída com **JavaScript** e **React**, permitindo escolher os parâmetros e visualizar a solução de forma interativa 
 no browser.
-![SeOP](https://github.com/user-attachments/assets/62eb156f-d413-4aee-81c0-ed89dbc8ff53)
+![SeOP](https://github.com/user-attachments/assets/19f1530c-8415-4b67-b32b-f142995ca4be)
+
 
 
 
