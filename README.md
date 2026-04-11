@@ -27,7 +27,7 @@ Os dados para gerar instâncias são sintéticos e construí utilizando ajuda de
 Dois gráficos são gerados ao executar main.py
 
 **Primeiro - Produção ao longo do tempo:** Produção por produto ao longo do horizonte de planetamento t. 
-<img width="1923" height=<img width="1000" height="600" alt="producao" src="https://github.com/user-attachments/assets/8a8dfc0f-7d93-4cc7-b3a0-a07de5438cdd" />
+<img width="1000" height="600" alt="producao" src="https://github.com/user-attachments/assets/8a8dfc0f-7d93-4cc7-b3a0-a07de5438cdd" />
 
 
 
